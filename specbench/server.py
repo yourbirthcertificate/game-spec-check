@@ -11,9 +11,13 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import check_game, matcher, sources, specs, steam_library
+from . import __version__, check_game, matcher, sources, specs, steam_library
+from .paths import WEB_DIR
 
-WEB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web")
+# Windows takes these from the registry, where .js is sometimes text/plain.
+_TYPES = {".html": "text/html", ".css": "text/css", ".js": "text/javascript",
+          ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon"}
+APP_ID = "game-spec-check"
 
 
 class ApiError(Exception):
@@ -98,6 +102,7 @@ def _hardware(q):
 
 
 ROUTES = {
+    "/api/ping": lambda q: {"app": APP_ID, "version": __version__},
     "/api/specs": lambda q: specs.detect(refresh=q.get("refresh") == "1"),
     "/api/search": _search,
     "/api/game": _game,
@@ -152,7 +157,8 @@ class Handler(BaseHTTPRequestHandler):
         full = os.path.normpath(os.path.join(WEB_DIR, name))
         if not full.startswith(WEB_DIR + os.sep) or not os.path.isfile(full):
             return self._send(404, b"Not found", "text/plain; charset=utf-8")
-        ctype = mimetypes.guess_type(full)[0] or "application/octet-stream"
+        ctype = (_TYPES.get(os.path.splitext(full)[1].lower())
+                 or mimetypes.guess_type(full)[0] or "application/octet-stream")
         if ctype.startswith("text/") or ctype.endswith(("javascript", "json")):
             ctype += "; charset=utf-8"
         with open(full, "rb") as fh:

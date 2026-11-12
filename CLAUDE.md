@@ -4,6 +4,7 @@ Local Windows app (Python standard library only, no dependencies) with a browser
 
 - Run: `python run.py` (add `--no-browser` when previewing). Tests: `python -m unittest discover tests`.
 - Python changes need a server restart. Files in `web/` are served fresh on reload.
+- Exe: `build.bat` writes `dist\GameSpecCheck.exe` (PyInstaller onefile, in a local `.venv`). Bundled files resolve through `specbench/paths.py`, so add new data folders there and to `--add-data` in `build.bat`.
 - Steam results are cached raw in `.cache/` and parsed on every read, so parser fixes apply without clearing it.
 
 ## Wording

@@ -6,15 +6,31 @@ It reads the hardware in your machine, looks up the requirements the game's publ
 
 ## Running it
 
+### With the exe
+
+Download `GameSpecCheck.exe` from the Releases page and double-click it. It needs Windows 10 or 11 and nothing else, Python included.
+
+A console window opens and your browser goes to `http://127.0.0.1:8765`. Close the console window when you are done. Starting the exe a second time opens the copy that is already running.
+
+The exe is not code-signed, so the first time you run it Windows may show "Windows protected your PC". Choose "More info", then "Run anyway". Some antivirus tools also flag single-file Python programs they have not seen before.
+
+### From source
+
 You need Windows and Python 3.8 or newer. There is nothing else to install.
 
-Double-click `Start Game Spec Check.bat`. A console window opens and your browser goes to `http://127.0.0.1:8765`. Close the console window when you are done.
-
-From a terminal:
+Double-click `Start Game Spec Check.bat`, or from a terminal:
 
 ```
 python run.py
 ```
+
+### Building the exe yourself
+
+```
+build.bat
+```
+
+This creates a `.venv` folder, installs PyInstaller into it, runs the tests and writes `dist\GameSpecCheck.exe`.
 
 ## What you can do with it
 
@@ -36,7 +52,7 @@ Video memory is read from the registry value the driver publishes, because the u
 
 SteamDB has no public API and asks not to be scraped. Its requirement data is Steam's own, which is what the store API returns, so the app reads that and links to the SteamDB page for each game.
 
-Lookups are cached in `.cache/` for a week. Delete that folder to force fresh data.
+Lookups are cached for a week, in `.cache/` when run from source and in `%LOCALAPPDATA%\GameSpecCheck\cache` when run from the exe. Delete that folder to force fresh data.
 
 ## How the comparison works
 
@@ -79,7 +95,10 @@ specbench/compare.py     the comparison and the wording of the answer
 specbench/sources.py     Steam and PCGamingWiki lookups, with the cache
 specbench/steam_library.py  finds installed Steam games
 specbench/server.py      local web server and JSON API
+specbench/paths.py       file locations, from source or inside the exe
 web/                     the page itself (plain HTML, CSS and JavaScript)
+build.bat                builds the exe
+tools/make_icon.py       draws the exe's icon
 ```
 
 To add or correct a part, edit its line in `specbench/hardware_db.py`. The name is what gets matched and the number is its relative speed.

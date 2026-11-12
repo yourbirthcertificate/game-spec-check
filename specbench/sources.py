@@ -14,9 +14,9 @@ import urllib.parse
 import urllib.request
 
 from . import requirements
+from .paths import CACHE_DIR
 
 USER_AGENT = "GameSpecCheck/1.0 (local desktop tool)"
-CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".cache")
 _DAY = 86400
 _steam_gate = threading.Lock()
 _last_steam = [0.0]
