@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Game Spec Check</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2310151c'/%3E%3Cpath d='M8 17l5 5 11-12' fill='none' stroke='%2345d39a' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7"/><path d="M8 17l5 5 11-12"/></svg>
+    <span>Game Spec Check</span>
+  </div>
+  <nav class="tabs" role="tablist" aria-label="Views">
+    <button role="tab" id="tabbtn-check" data-tab="check" aria-selected="true" aria-controls="tab-check">Check a game</button>
+    <button role="tab" id="tabbtn-library" data-tab="library" aria-selected="false" aria-controls="tab-library">My Steam games</button>
+  </nav>
+</header>
+
+<main class="page">
+  <section class="pc" aria-label="This PC">
+    <div class="pc-line">
+      <p id="pc-summary" class="pc-summary"><span class="spin"></span>Reading this PC's hardware…</p>
+      <button id="pc-toggle" class="link" type="button" aria-expanded="false" aria-controls="pc-details">Details and upgrades</button>
+    </div>
+    <div id="pc-details" class="pc-details" hidden>
+      <div id="pc-body"></div>
+      <form id="whatif-form" class="whatif" autocomplete="off">
+        <h2>Thinking about an upgrade?</h2>
+        <p class="muted small">Swap in a part to see how the answers change. Nothing on this PC is touched.</p>
+        <label>Processor
+          <input id="wi-cpu" list="dl-cpu" placeholder="Ryzen 7 7800X3D">
+          <datalist id="dl-cpu"></datalist>
+        </label>
+        <label>Graphics card
+          <input id="wi-gpu" list="dl-gpu" placeholder="RTX 4070 Super">
+          <datalist id="dl-gpu"></datalist>
+        </label>
+        <label>Memory
+          <select id="wi-ram">
+            <option value="">Same as now</option>
+            <option value="4">4 GB</option><option value="8">8 GB</option>
+            <option value="12">12 GB</option><option value="16">16 GB</option>
+            <option value="24">24 GB</option><option value="32">32 GB</option>
+            <option value="48">48 GB</option><option value="64">64 GB</option>
+          </select>
+        </label>
+        <p id="wi-error" class="error small" role="alert" hidden></p>
+        <div class="row-btns">
+          <button class="btn primary" type="submit">Try it</button>
+          <button class="btn" type="button" id="wi-reset">Back to my real PC</button>
+          <button class="btn" type="button" id="rescan" title="Read the hardware again">Rescan hardware</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <div id="sim" class="sim" hidden></div>
+
+  <section id="tab-check" role="tabpanel" aria-labelledby="tabbtn-check">
+    <div class="ask">
+      <h1>Can this PC run it?</h1>
+      <p class="lede">Type a game's name. Its published requirements are compared with the hardware in this PC.</p>
+      <div class="search">
+        <label for="q" class="sr">Game name</label>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+        <input id="q" type="search" placeholder="Game name, like Elden Ring" autocomplete="off" spellcheck="false"
+               role="combobox" aria-expanded="false" aria-controls="results" aria-autocomplete="list">
+        <ul id="results" class="results" role="listbox" hidden></ul>
+      </div>
+      <div id="recent" class="chips" hidden></div>
+      <div id="picks" class="chips"></div>
+    </div>
+    <div id="game" aria-live="polite"></div>
+  </section>
+
+  <section id="tab-library" role="tabpanel" aria-labelledby="tabbtn-library" hidden>
+    <div id="library"></div>
+  </section>
+</main>
+
+<footer class="foot muted small">
+  Requirements come from the Steam store and PCGamingWiki. Part speeds are estimates, so read a "just about"
+  answer as a maybe. Details about this PC stay on this PC.
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

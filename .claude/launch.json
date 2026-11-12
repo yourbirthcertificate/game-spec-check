@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "game-spec-check",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["run.py", "--no-browser", "--port", "8765"],
+      "port": 8765
+    }
+  ]
+}
