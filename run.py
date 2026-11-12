@@ -8,10 +8,20 @@ import argparse
 import json
 import sys
 import threading
+import urllib.request
 import webbrowser
 
 import specbench
-from specbench import server, specs
+from specbench import paths, server, specs
+
+
+def already_running(port):
+    """True if another copy of this app is answering on `port`."""
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:%d/api/ping" % port, timeout=1.5) as r:
+            return json.loads(r.read().decode("utf-8")).get("app") == server.APP_ID
+    except (OSError, ValueError):
+        return False
 
 
 def main():
@@ -21,6 +31,7 @@ def main():
     ap.add_argument("--verbose", action="store_true", help="log every request")
     ap.add_argument("--specs", action="store_true", help="print detected specs and exit")
     ap.add_argument("--check", metavar="APPID", help="check one Steam app id and exit")
+    ap.add_argument("--version", action="version", version="Game Spec Check " + specbench.__version__)
     args = ap.parse_args()
 
     if sys.platform != "win32":
@@ -40,9 +51,21 @@ def main():
                                                     r["required"][:60], r["yours"]))
         return
 
+    # Double-clicking the exe twice should reuse the copy that is running.
+    if already_running(args.port):
+        url = "http://127.0.0.1:%d/" % args.port
+        print("Game Spec Check is already running. Opening %s" % url)
+        if not args.no_browser:
+            webbrowser.open(url)
+        return
+
     httpd = server.make_server(args.port, args.verbose)
     url = "http://127.0.0.1:%d/" % httpd.server_address[1]
-    print("Game Spec Check is running at %s  (Ctrl+C to stop)" % url, flush=True)
+    print("Game Spec Check %s is running." % specbench.__version__)
+    print()
+    print("  Open %s in your browser if it did not open by itself." % url)
+    print("  Close this window to stop the app.")
+    print(flush=True)
     # Read the hardware in the background so the first page load is instant.
     threading.Thread(target=specs.detect, daemon=True).start()
     if not args.no_browser:
@@ -54,4 +77,11 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:
+        # In the packaged exe the window would vanish before this can be read.
+        print("Game Spec Check could not start: %s: %s" % (type(exc).__name__, exc))
+        if paths.FROZEN:
+            input("Press Enter to close this window.")
+        sys.exit(1)
