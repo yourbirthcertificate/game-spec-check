@@ -278,3 +278,10 @@ td.mine { color: var(--text); }
 .lib-row .lv { margin: 0; white-space: nowrap; }
 
 .foot { max-width: 1000px; margin: 0 auto 32px; padding: 0 20px; }
+
+/* ---------- about page ---------- */
+.prose { max-width: 720px; padding-top: 24px; padding-bottom: 48px; }
+.prose h1 { font: 700 32px/1.2 "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; letter-spacing: -.02em; margin-bottom: 8px; }
+.prose h2 { font-size: 18px; font-weight: 650; margin: 28px 0 6px; }
+.prose p + p, .prose ul + p { margin-top: 10px; }
+.prose ul { list-style: disc; padding-left: 22px; display: grid; gap: 8px; }
