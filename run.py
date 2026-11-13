@@ -65,6 +65,9 @@ def main():
     print()
     print("  Open %s in your browser if it did not open by itself." % url)
     print("  Close this window to stop the app.")
+    print()
+    print("  A personal tool written with AI, for noncommercial use only.")
+    print("  License and credits: %sabout.html" % url)
     print(flush=True)
     # Read the hardware in the background so the first page load is instant.
     threading.Thread(target=specs.detect, daemon=True).start()

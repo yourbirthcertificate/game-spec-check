@@ -4,6 +4,13 @@ A small Windows app that answers one question: can this PC run that game?
 
 It reads the hardware in your machine, looks up the requirements the game's publisher lists, and puts the two side by side with a plain answer on top. It does the same job as Can You Run It or PCGameBenchmark, but it runs on your own computer and your hardware details are never uploaded.
 
+## About this project
+
+- **A personal tool.** It was made for the author's own use and is shared as is, with no support and no promise of updates.
+- **Written with AI.** The code was written by Claude, an AI model from Anthropic, through Claude Code. It has had no professional review or security audit, and some answers will be wrong.
+- **Noncommercial use only.** It is licensed under the PolyForm Noncommercial License 1.0.0. Personal, hobby and study use is fine. Commercial use is not.
+- **No donations.** The author is not accepting donations or sponsorship.
+
 ## Running it
 
 ### With the exe
@@ -12,7 +19,7 @@ Download `GameSpecCheck.exe` from the Releases page and double-click it. It need
 
 A console window opens and your browser goes to `http://127.0.0.1:8765`. Close the console window when you are done. Starting the exe a second time opens the copy that is already running.
 
-The exe is not code-signed, so the first time you run it Windows may show "Windows protected your PC". Choose "More info", then "Run anyway". Some antivirus tools also flag single-file Python programs they have not seen before.
+The exe is not code-signed yet, so the first time you run it Windows may show "Windows protected your PC". Choose "More info", then "Run anyway". Some antivirus tools also flag single-file Python programs they have not seen before.
 
 ### From source
 
@@ -31,6 +38,18 @@ build.bat
 ```
 
 This creates a `.venv` folder, installs PyInstaller into it, runs the tests and writes `dist\GameSpecCheck.exe`.
+
+### Signing the exe
+
+The released exe is not signed. Code-signing certificates come from outside companies after an identity check, and most cost money. `build.bat` signs the exe when a certificate is configured and leaves it unsigned otherwise. Set one of these before running it:
+
+```
+set GSC_SIGN_THUMBPRINT=<thumbprint of a certificate in your Windows certificate store>
+set GSC_SIGN_PFX=C:\path\to\certificate.pfx       (and GSC_SIGN_PFX_PASSWORD)
+set GSC_SIGNTOOL_ARGS=<arguments for signtool.exe, for cloud or hardware-token signing>
+```
+
+`tools\sign.ps1` documents each option and checks the signature afterwards. A signature replaces "Unknown publisher" with the publisher's name, but SmartScreen can still warn about a new publisher until it builds a reputation.
 
 ## What you can do with it
 
@@ -99,6 +118,17 @@ specbench/paths.py       file locations, from source or inside the exe
 web/                     the page itself (plain HTML, CSS and JavaScript)
 build.bat                builds the exe
 tools/make_icon.py       draws the exe's icon
+tools/make_version_info.py  writes the exe's Details tab
+tools/sign.ps1           signs the exe when a certificate is configured
+LICENSE, NOTICE, CREDITS.md, licenses/   license, notices and credits
 ```
 
 To add or correct a part, edit its line in `specbench/hardware_db.py`. The name is what gets matched and the number is its relative speed.
+
+## License and credits
+
+Game Spec Check is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE). You may use, copy and change it for noncommercial purposes. That is not an open source license in the Open Source Initiative's sense, because it does not allow commercial use.
+
+[NOTICE](NOTICE) has the copyright line, the AI and donation statements, and the trademark notes. [CREDITS](CREDITS.md) lists the data sources and software the app relies on, including PCGamingWiki, whose content is available under a Creative Commons Attribution-NonCommercial-ShareAlike license. The running app shows the same information on its About page.
+
+This project is not affiliated with or endorsed by Valve, SteamDB, PCGamingWiki, NVIDIA, AMD, Intel, Microsoft or Anthropic.

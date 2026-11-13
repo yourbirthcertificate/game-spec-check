@@ -12,7 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from . import __version__, check_game, matcher, sources, specs, steam_library
-from .paths import WEB_DIR
+from .paths import WEB_DIR, legal_file
 
 # Windows takes these from the registry, where .js is sometimes text/plain.
 _TYPES = {".html": "text/html", ".css": "text/css", ".js": "text/javascript",
@@ -140,6 +140,12 @@ class Handler(BaseHTTPRequestHandler):
         if host not in ("127.0.0.1", "localhost"):
             return self._json(403, {"error": "Local access only."})
         url = urlparse(self.path)
+        if url.path.startswith("/legal/"):
+            path = legal_file(url.path[len("/legal/"):])
+            if not path:
+                return self._send(404, b"Not found", "text/plain; charset=utf-8")
+            with open(path, "rb") as fh:
+                return self._send(200, fh.read(), "text/plain; charset=utf-8")
         if url.path in ROUTES:
             q = {k: v[0] for k, v in parse_qs(url.query).items()}
             try:
