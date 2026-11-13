@@ -21,6 +21,17 @@ A console window opens and your browser goes to `http://127.0.0.1:8765`. Close t
 
 The exe is not code-signed yet, so the first time you run it Windows may show "Windows protected your PC". Choose "More info", then "Run anyway". Some antivirus tools also flag single-file Python programs they have not seen before.
 
+### Updates
+
+When the app opens, it asks GitHub once a day whether there is a newer release. If there is, the page shows a notice with the version and a link to the release page, and "Not now" hides it until the next version.
+
+- **What the check sends.** One GET request to `https://api.github.com/repos/yourbirthcertificate/game-spec-check/releases/latest`. It carries the User-Agent `GameSpecCheck/<version> (local desktop tool)` and nothing else: no details about this PC, no game names and no ids. GitHub sees your IP address, as with any web request. The answer is cached for a day, and a failed check is not repeated on its own for an hour.
+- **Turning it off.** Untick "Check for a new version when the app opens" on the About page, or start the app with `--no-update-check`, which stops every request to GitHub for that session. "Check for updates" on the About page asks right away.
+- **Installing.** Nothing is downloaded until you press "Update now", and that button only appears in the exe. The exe downloads `GameSpecCheck.exe` from the release over HTTPS into `%LOCALAPPDATA%\GameSpecCheck\update`, compares its SHA-256 checksum with the `digest` GitHub lists for that file, and refuses it if the digest is missing or different. It starts the new file once with `--version` to check that it runs, renames the running exe to `GameSpecCheck.exe.old`, puts the new one in its place and restarts. If the swap fails, the old exe keeps its name and keeps working. The `.old` file is deleted on the next start. If the exe sits in a folder you cannot write to, download the new version from the release page instead.
+- **What the checksum proves.** The exe is not code-signed. A matching checksum only shows that the file is the one GitHub serves for that release. It does not show who built it, so if this project's GitHub account were taken over, a bad file would pass the check too.
+
+Run from source, the notice says to run `git pull` instead of offering a download.
+
 ### From source
 
 You need Windows and Python 3.8 or newer. There is nothing else to install.
@@ -111,7 +122,7 @@ Free disk space is treated as a warning, not a failure, and is not checked for g
 ## Data and privacy
 
 - Hardware details, installed games and install folders stay on this PC. The local server listens on 127.0.0.1 only and refuses requests addressed to any other name.
-- The only network requests are to Steam and PCGamingWiki, and they carry a game id or a title to search for.
+- The network requests are to Steam and PCGamingWiki, which carry a game id or a title to search for, and the daily update check to GitHub, which carries nothing about this PC (see [Updates](#updates)).
 - Requests that change something or start a game must come from the app's own page: they are JSON POSTs, and requests from other sites are refused.
 - Saved data (profiles, wanted games, games you matched by hand, scan results) lives in `.data\` when run from source and in `%LOCALAPPDATA%\GameSpecCheck\data` when run from the exe. A file that cannot be read is renamed to `<name>.bad-<time>.json` and the app starts that file over and says so.
 - Lookups are cached for a week in `.cache\` or `%LOCALAPPDATA%\GameSpecCheck\cache`. Delete that folder to force fresh data.
@@ -119,7 +130,7 @@ Free disk space is treated as a warning, not a failure, and is not checked for g
 
 ## Request limits
 
-Valve publishes no request limit for the store endpoints the app uses. The figure developers usually quote, about 200 requests per five minutes, comes from a 2015 SteamDB blog post, not from Valve. The app sends Steam requests one at a time, at most one every 1.5 seconds. PCGamingWiki runs MediaWiki, whose API etiquette asks for requests in series; the app sends them one at a time with a short gap. An HTTP 429 or 503 pauses that source for the Retry-After time when given, otherwise for a growing backoff, and the request is retried twice before the error is shown. All of this is in `specbench/net.py`.
+Valve publishes no request limit for the store endpoints the app uses. The figure developers usually quote, about 200 requests per five minutes, comes from a 2015 SteamDB blog post, not from Valve. The app sends Steam requests one at a time, at most one every 1.5 seconds. PCGamingWiki runs MediaWiki, whose API etiquette asks for requests in series; the app sends them one at a time with a short gap. GitHub allows 60 unauthenticated API requests per hour from one IP address. The update check sends at most one a day plus one per click, and does not retry. An HTTP 429 or 503, or GitHub's 403 with `X-RateLimit-Remaining: 0`, pauses that source for the Retry-After or reset time when given, otherwise for a growing backoff. Steam and PCGamingWiki requests are retried twice before the error is shown. All of this is in `specbench/net.py`.
 
 ## Command line
 
@@ -128,6 +139,7 @@ python run.py --specs            print what was detected, as JSON
 python run.py --check 1245620    check one Steam app id and print the result
 python run.py --port 9000        use another port
 python run.py --no-browser       start without opening a browser tab
+python run.py --no-update-check  do not ask GitHub for a newer version
 ```
 
 ## Tests
@@ -137,7 +149,7 @@ python -m unittest discover tests
 python tools\smoke.py run.py
 ```
 
-The unit tests cover the comparison rules, every discovery source (with synthetic launcher records, so no launcher needs to be installed), merging and identity, saved data, pasted requirements, reports, the planner, rate limiting and the server's request checks. `tests/js/logic.test.js` covers the page's search, filter and planner logic and runs when Node is installed. `.github/workflows/ci.yml` runs all of this on Windows with Python 3.8 and 3.13, then builds the exe and smoke-tests it.
+The unit tests cover the comparison rules, every discovery source (with synthetic launcher records, so no launcher needs to be installed), merging and identity, saved data, pasted requirements, reports, the planner, rate limiting, the update check (versions, malformed answers, rate limits, the digest check and the exe swap) and the server's request checks. `tests/js/logic.test.js` covers the page's search, filter and planner logic and runs when Node is installed. `.github/workflows/ci.yml` runs all of this on Windows with Python 3.8 and 3.13, then builds the exe and smoke-tests it.
 
 ## Layout
 
@@ -151,6 +163,7 @@ specbench/requirements.py   parses Steam and PCGamingWiki requirement text
 specbench/compare.py        the comparison and the wording of the answer
 specbench/net.py            outbound requests: pacing, retries, HTTP 429
 specbench/sources.py        Steam and PCGamingWiki lookups, with the cache
+specbench/update.py         the update check and the one-click exe update
 specbench/discovery/        installed-game discovery, one provider per source
 specbench/identity.py       merges installs into games and finds their requirements
 specbench/library.py        scans, saved choices and launching

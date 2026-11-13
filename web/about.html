@@ -45,7 +45,19 @@
 
   <h2>Privacy</h2>
   <p>Details about this PC stay on this PC, and so do the games it finds and where they are installed. Finding games only reads launcher records, installed-program records, Start menu shortcuts and folders you add. Nothing is run while scanning, and no account or sign-in is needed.</p>
-  <p>The only network requests are lookups to Steam and PCGamingWiki, which carry a game's id or a title to search for. Their answers are cached on this PC. Profiles, wanted games, the games you matched by hand and the last scan are saved in a local folder. Report images are made on this PC and leave out user names and install folders.</p>
+  <p>The network requests are lookups to Steam and PCGamingWiki, which carry a game's id or a title to search for, and the update check described below. Their answers are cached on this PC. Profiles, wanted games, the games you matched by hand and the last scan are saved in a local folder. Report images are made on this PC and leave out user names and install folders.</p>
+
+  <h2 id="updates">Updates</h2>
+  <p>You have version <span id="up-current">…</span>.</p>
+  <div class="up-settings">
+    <label><input type="checkbox" id="up-auto"> Check for a new version when the app opens</label>
+    <button class="btn" type="button" id="up-check">Check for updates</button>
+  </div>
+  <div id="up-result" aria-live="polite"></div>
+  <p>The check asks GitHub for the latest release of this project at <code>api.github.com</code>. The request carries the app's name and version in its User-Agent and nothing else: no details about this PC, no game names and no ids. GitHub sees your IP address, as with any web request. The answer is kept for a day, so the app asks at most once a day unless you press "Check for updates". Turn the check off above, or start the app with <code>--no-update-check</code> to turn off every request to GitHub for that session.</p>
+  <p>Nothing is downloaded or installed until you press "Update now", and that button only appears in the exe. Run from source, the app tells you to run <code>git pull</code> instead. The exe downloads <code>GameSpecCheck.exe</code> from the release, compares its SHA-256 checksum with the one GitHub lists for that file and refuses it if the checksum is missing or different. It then starts the new file once to check that it runs, swaps it in, keeps the old exe as <code>GameSpecCheck.exe.old</code> until the next start and restarts.</p>
+  <p>The exe is not code-signed. A matching checksum only shows that the file is the one GitHub serves for that release. It does not show who built it, so if this project's GitHub account were taken over, a bad file would pass the check too.</p>
 </main>
+<script src="update.js"></script>
 </body>
 </html>

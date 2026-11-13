@@ -2,8 +2,9 @@
 
 Listens on 127.0.0.1 only and answers only requests addressed to it by its
 loopback name. Hardware details, install folders and saved data never leave
-the machine; the only outbound requests are game lookups (ids and search
-terms) to Steam and PCGamingWiki.
+the machine. The outbound requests are game lookups (ids and search terms) to
+Steam and PCGamingWiki, and the update check to GitHub, which sends nothing
+about the PC (see update.py).
 
 Requests that change something or start a program are POSTs with a JSON body.
 A web page on another site cannot send those: a cross-site JSON POST needs a
@@ -16,11 +17,12 @@ import os
 import re
 import socket
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from . import (__version__, checks, discovery, library, matcher, paste, planner, report,
-               sources, specs, store, userdata)
+               sources, specs, store, update, userdata)
 from .paths import WEB_DIR, legal_file
 
 # Windows takes these from the registry, where .js is sometimes text/plain.
@@ -148,6 +150,7 @@ GET_ROUTES = {
     "/api/check": lambda q: checks.check_target(_target(q), _effective_specs(q)),
     "/api/plan": _plan,
     "/api/state": _state,
+    "/api/update": lambda q: update.status(force=q.get("force") == "1"),
 }
 
 
@@ -197,6 +200,8 @@ POST_ROUTES = {
     "/api/paste/parse": _p_paste_parse,
     "/api/paste/compare": _p_paste_compare,
     "/api/report": _p_report,
+    "/api/settings": lambda b: update.set_enabled(b.get("update_check")),
+    "/api/update/install": lambda b: update.install(),
 }
 
 
@@ -232,7 +237,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, fn(arg))
         except ApiError as e:
             return self._json(e.status, {"error": str(e)})
-        except (userdata.InvalidData, library.LibraryError) as e:
+        except (userdata.InvalidData, library.LibraryError, update.UpdateError) as e:
             return self._json(400, {"error": str(e)})
         except checks.NotFound as e:
             return self._json(404, {"error": str(e)})
@@ -288,7 +293,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(400, {"error": "Request body is not JSON."})
         if not isinstance(body, dict):
             return self._json(400, {"error": "Request body must be a JSON object."})
-        return self._call(POST_ROUTES[url.path], body)
+        self._call(POST_ROUTES[url.path], body)
+        if url.path == "/api/update/install" and update.restart_requested:
+            threading.Thread(target=_stop_for_restart, args=(self.server,), daemon=True).start()
 
     def _static(self, path):
         name = "index.html" if path in ("", "/") else path.lstrip("/")
@@ -312,6 +319,13 @@ class _Server(ThreadingHTTPServer):
         if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
             self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
         super().server_bind()
+
+
+def _stop_for_restart(httpd):
+    # Let the answer reach the page, then stop serving. run.py starts the new
+    # exe once the port is free.
+    time.sleep(0.5)
+    httpd.shutdown()
 
 
 def make_server(port=8765, verbose=False, tries=PORT_TRIES):

@@ -8,6 +8,7 @@ Local Windows app (Python standard library only, no dependencies) with a browser
 - Steam results are cached raw in `.cache/` and parsed on every read, so parser fixes apply without clearing it.
 - Saved user data (profiles, wanted games, mappings, last scan) is in `.data/` from source, `%LOCALAPPDATA%\GameSpecCheck\data` in the exe; `GSC_DATA_DIR` overrides it, and tests use a temp folder through it.
 - All outbound requests go through `specbench/net.py` (pacing, 429 handling). Discovery must stay read-only: never run or open files while scanning, and never walk whole drives.
+- Updates (`specbench/update.py`): the page asks GitHub's latest-release API through `net.GITHUB`, cached a day with `sources._cached`, and sends nothing about the PC. Installing runs only on a click, only in the exe, and refuses a download without a matching `digest`; the swap renames the running exe to `.old` and the next start deletes it. Release names and notes are untrusted, so escape them in the UI. `--no-update-check` stops all GitHub requests (the smoke test uses it). Keep the README "Updates" section and the About page's "Updates" section in step with the code.
 - State-changing API calls are JSON POSTs checked for Origin and Sec-Fetch-Site in `server.py`; keep new ones that way. Launching only uses actions stored in a scan record or an exe the user set.
 
 ## License and legal files
