@@ -15,7 +15,9 @@
   </div>
   <nav class="tabs" role="tablist" aria-label="Views">
     <button role="tab" id="tabbtn-check" data-tab="check" aria-selected="true" aria-controls="tab-check">Check a game</button>
-    <button role="tab" id="tabbtn-library" data-tab="library" aria-selected="false" aria-controls="tab-library">My Steam games</button>
+    <button role="tab" id="tabbtn-library" data-tab="library" aria-selected="false" aria-controls="tab-library">My games</button>
+    <button role="tab" id="tabbtn-wanted" data-tab="wanted" aria-selected="false" aria-controls="tab-wanted">Wanted</button>
+    <button role="tab" id="tabbtn-plan" data-tab="plan" aria-selected="false" aria-controls="tab-plan">Upgrades</button>
   </nav>
 </header>
 
@@ -23,7 +25,12 @@
   <section class="pc" aria-label="This PC">
     <div class="pc-line">
       <p id="pc-summary" class="pc-summary"><span class="spin"></span>Reading this PC's hardware…</p>
-      <button id="pc-toggle" class="link" type="button" aria-expanded="false" aria-controls="pc-details">Details and upgrades</button>
+      <div class="pc-tools">
+        <label class="inline">Checking for
+          <select id="profile" aria-label="PC to check against"><option value="real">This PC (detected)</option></select>
+        </label>
+        <button id="pc-toggle" class="link" type="button" aria-expanded="false" aria-controls="pc-details">Details and upgrades</button>
+      </div>
     </div>
     <div id="pc-details" class="pc-details" hidden>
       <div id="pc-body"></div>
@@ -38,19 +45,32 @@
           <input id="wi-gpu" list="dl-gpu" placeholder="RTX 4070 Super">
           <datalist id="dl-gpu"></datalist>
         </label>
-        <label>Memory
-          <select id="wi-ram">
-            <option value="">Same as now</option>
-            <option value="4">4 GB</option><option value="8">8 GB</option>
-            <option value="12">12 GB</option><option value="16">16 GB</option>
-            <option value="24">24 GB</option><option value="32">32 GB</option>
-            <option value="48">48 GB</option><option value="64">64 GB</option>
-          </select>
-        </label>
+        <div class="two">
+          <label>Memory
+            <select id="wi-ram">
+              <option value="">Same as now</option>
+              <option value="4">4 GB</option><option value="8">8 GB</option>
+              <option value="12">12 GB</option><option value="16">16 GB</option>
+              <option value="24">24 GB</option><option value="32">32 GB</option>
+              <option value="48">48 GB</option><option value="64">64 GB</option>
+            </select>
+          </label>
+          <label>Video memory
+            <select id="wi-vram">
+              <option value="">From the card</option>
+              <option value="2">2 GB</option><option value="4">4 GB</option>
+              <option value="6">6 GB</option><option value="8">8 GB</option>
+              <option value="10">10 GB</option><option value="12">12 GB</option>
+              <option value="16">16 GB</option><option value="20">20 GB</option>
+              <option value="24">24 GB</option>
+            </select>
+          </label>
+        </div>
         <p id="wi-error" class="error small" role="alert" hidden></p>
         <div class="row-btns">
           <button class="btn primary" type="submit">Try it</button>
           <button class="btn" type="button" id="wi-reset">Back to my real PC</button>
+          <button class="btn" type="button" id="wi-save">Save as profile</button>
           <button class="btn" type="button" id="rescan" title="Read the hardware again">Rescan hardware</button>
         </div>
       </form>
@@ -58,6 +78,7 @@
   </section>
 
   <div id="sim" class="sim" hidden></div>
+  <div id="notice" class="sim" hidden></div>
 
   <section id="tab-check" role="tabpanel" aria-labelledby="tabbtn-check">
     <div class="ask">
@@ -72,21 +93,33 @@
       </div>
       <div id="recent" class="chips" hidden></div>
       <div id="picks" class="chips"></div>
+      <p class="small muted paste-hint">Have the requirements as text from somewhere else?
+        <button type="button" class="link" id="paste-open">Paste them</button></p>
     </div>
+    <section id="paste" class="panel" hidden aria-label="Paste requirements"></section>
     <div id="game" aria-live="polite"></div>
   </section>
 
   <section id="tab-library" role="tabpanel" aria-labelledby="tabbtn-library" hidden>
     <div id="library"></div>
   </section>
+
+  <section id="tab-wanted" role="tabpanel" aria-labelledby="tabbtn-wanted" hidden>
+    <div id="wanted"></div>
+  </section>
+
+  <section id="tab-plan" role="tabpanel" aria-labelledby="tabbtn-plan" hidden>
+    <div id="plan"></div>
+  </section>
 </main>
 
 <footer class="foot muted small">
-  Requirements come from the Steam store and PCGamingWiki. Part speeds are estimates, so read a "just about"
-  answer as a maybe. Details about this PC stay on this PC.
+  Requirements come from the Steam store, PCGamingWiki or text you paste. Part speeds are estimates, so an answer
+  says whether the listed parts are met, not how a game will play. Details about this PC and its games stay on this PC.
   A personal, noncommercial tool written with AI. <a href="about.html">About, license and credits</a>.
 </footer>
 
+<script src="logic.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

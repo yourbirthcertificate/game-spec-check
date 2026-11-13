@@ -99,7 +99,31 @@ def _laptop_factor(entry):
     return 0.88
 
 
-_LAPTOP_WORDS = re.compile(r"laptop|mobile|notebook|max-?q", re.I)
+_LAPTOP_TOKS = {"laptop", "mobile", "notebook", "maxq"}
+# Words that end the description of one card in a list of alternatives.
+_ALT_BREAK = {"or", "and", "desktop", "vs", "versus"}
+
+
+def _laptop_near(toks, s, e, prev_end, next_start):
+    """True when a laptop word belongs to the card at toks[s:e].
+
+    "RTX 3060 Laptop GPU / GTX 1070" is a laptop chip and a desktop card, so
+    the word only counts right after the card (before the next card or an
+    "or") or right before it ("Mobile GTX 1050").
+    """
+    for j in range(e, min(next_start, e + 4)):
+        t = toks[j]
+        if t in _ALT_BREAK:
+            break
+        if t in _LAPTOP_TOKS or (t == "max" and j + 1 < len(toks) and toks[j + 1] == "q"):
+            return True
+    for j in range(s - 1, max(prev_end, s - 2) - 1, -1):
+        t = toks[j]
+        if t in _ALT_BREAK:
+            break
+        if t in _LAPTOP_TOKS:
+            return True
+    return False
 
 
 def _is_num(tok, lo=3, hi=4):
@@ -169,12 +193,15 @@ def match_gpus(text):
             if found:
                 break
 
-    laptop_text = bool(_LAPTOP_WORDS.search(text or ""))
+    hits.sort(key=lambda h: h[0])
     out = []
-    for s, e, entry in sorted(hits, key=lambda h: h[0]):
+    for n, (s, e, entry) in enumerate(hits):
         cand = dict(entry, kind="exact")
+        prev_end = hits[n - 1][1] if n else 0
+        next_start = hits[n + 1][0] if n + 1 < len(hits) else len(toks)
         suffix_m = e < len(toks) and toks[e] == "m"
-        if (laptop_text or suffix_m) and not _NO_LAPTOP_FACTOR.search(entry["name"]):
+        laptop = suffix_m or _laptop_near(toks, s, e, prev_end, next_start)
+        if laptop and not _NO_LAPTOP_FACTOR.search(entry["name"]):
             cand["score"] = round(entry["score"] * _laptop_factor(entry))
             cand["name"] = entry["name"] + " (laptop)"
             cand["kind"] = "variant"

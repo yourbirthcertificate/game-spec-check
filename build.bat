@@ -7,7 +7,8 @@ cd /d "%~dp0"
 if not exist ".venv\Scripts\python.exe" (
   py -3 -m venv .venv || python -m venv .venv || goto :fail
 )
-".venv\Scripts\python.exe" -m pip install --quiet --upgrade pip pyinstaller || goto :fail
+rem Exact, hash-checked versions (see requirements-build.txt).
+".venv\Scripts\python.exe" -m pip install --quiet --require-hashes --only-binary=:all: -r requirements-build.txt || goto :fail
 ".venv\Scripts\python.exe" tools\make_icon.py build\icon.ico || goto :fail
 ".venv\Scripts\python.exe" tools\make_version_info.py build\version_info.txt || goto :fail
 ".venv\Scripts\python.exe" -m unittest discover tests || goto :fail
@@ -21,6 +22,9 @@ if not exist ".venv\Scripts\python.exe" (
   --add-data "%~dp0licenses\PSF-LICENSE.txt;legal" ^
   --workpath build\pyinstaller --specpath build ^
   run.py || goto :fail
+
+rem Starts the exe and checks that it serves its page, files and API.
+".venv\Scripts\python.exe" tools\smoke.py "%~dp0dist\GameSpecCheck.exe" || goto :fail
 
 rem Signs the exe when a certificate is configured (see tools\sign.ps1).
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\sign.ps1" "%~dp0dist\GameSpecCheck.exe" || goto :fail

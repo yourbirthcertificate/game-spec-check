@@ -23,6 +23,10 @@ noncommercial use only. See [NOTICE](NOTICE) for the short version and
   repository.
 - **SteamDB.** The app links to each game's SteamDB page. It does not read anything from
   SteamDB.
+- **Launcher records on this PC.** Installed games are found from the files and registry
+  entries that Steam, Epic Games, GOG, the Xbox app, EA, Ubisoft Connect, Battle.net and
+  the itch app write on this PC. Nothing is read from those companies' services. GOG
+  product ids are matched to PCGamingWiki pages through PCGamingWiki's own GOG lookup.
 - **Speed scores.** The processor and graphics card scores in
   `specbench/hardware_db.py` are hand-written estimates on a scale similar to PassMark's.
   They are not exported from any benchmark site.
@@ -32,6 +36,8 @@ noncommercial use only. See [NOTICE](NOTICE) for the short version and
 - [Python](https://www.python.org/), under the Python Software Foundation License. The
   exe contains the Python runtime. The license text is in
   [licenses/PSF-LICENSE.txt](licenses/PSF-LICENSE.txt).
+- [SQLite](https://sqlite.org/), which is in the public domain, comes with Python and is
+  used to read the itch app's database without changing it.
 - [PyInstaller](https://pyinstaller.org/) builds the exe. It is licensed under the GNU
   General Public License version 2 with an exception that lets programs built with it be
   distributed under other terms. PyInstaller is a build tool and is not part of the source
