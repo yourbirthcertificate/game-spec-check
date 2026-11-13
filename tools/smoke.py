@@ -118,12 +118,26 @@ def main():
         check(second.returncode == 0 and "already running" in second.stdout,
               "a second start finds the running copy")
     finally:
-        proc.terminate()
-        try:
-            proc.wait(10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+        stop(proc)
     return report(failures, proc)
+
+
+def stop(proc):
+    """End the app and anything it started.
+
+    A onefile exe runs as a small launcher plus the real app in a child
+    process. Ending only the launcher would leave the app running and keep
+    dist\\GameSpecCheck.exe locked, so the whole process tree is ended.
+    """
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        proc.terminate()
+    try:
+        proc.wait(10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
 
 
 def report(failures, proc):
