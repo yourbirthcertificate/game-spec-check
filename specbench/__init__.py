@@ -1,7 +1,7 @@
 """Game Spec Check: compare this PC with published game requirements."""
 from . import compare, requirements, sources
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 
 def check_game(source, ident, specs):
