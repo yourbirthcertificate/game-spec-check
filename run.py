@@ -15,13 +15,26 @@ import specbench
 from specbench import paths, server, specs
 
 
-def already_running(port):
+def already_running(port, timeout=1.0):
     """True if another copy of this app is answering on `port`."""
     try:
-        with urllib.request.urlopen("http://127.0.0.1:%d/api/ping" % port, timeout=1.5) as r:
-            return json.loads(r.read().decode("utf-8")).get("app") == server.APP_ID
+        with urllib.request.urlopen("http://127.0.0.1:%d/api/ping" % port, timeout=timeout) as r:
+            data = json.loads(r.read(4096).decode("utf-8", "replace"))
     except (OSError, ValueError):
         return False
+    return isinstance(data, dict) and data.get("app") == server.APP_ID
+
+
+def find_running(port, tries=server.PORT_TRIES):
+    """Port of a copy that is already running, or None.
+
+    A copy that found `port` taken moved to one of the next ports, so all of
+    the ports make_server would try are checked.
+    """
+    for p in range(port, port + tries):
+        if already_running(p, timeout=0.6):
+            return p
+    return None
 
 
 def main():
@@ -52,8 +65,9 @@ def main():
         return
 
     # Double-clicking the exe twice should reuse the copy that is running.
-    if already_running(args.port):
-        url = "http://127.0.0.1:%d/" % args.port
+    running = find_running(args.port)
+    if running:
+        url = "http://127.0.0.1:%d/" % running
         print("Game Spec Check is already running. Opening %s" % url)
         if not args.no_browser:
             webbrowser.open(url)

@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests (Python ${{ matrix.python }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.8", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Unit tests (Python, plus the browser logic tests under Node)
+        run: python -m unittest discover -v tests
+      - name: Smoke test from source
+        run: python tools/smoke.py run.py
+
+  build:
+    name: Build and smoke-test the exe
+    runs-on: windows-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Build (pinned, hash-checked PyInstaller; runs tests and smoke checks)
+        shell: cmd
+        run: build.bat
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GameSpecCheck-exe
+          path: dist/GameSpecCheck.exe
+          retention-days: 7

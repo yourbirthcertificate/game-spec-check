@@ -4,7 +4,7 @@ import re
 import subprocess
 import threading
 
-from . import matcher
+from . import dx, matcher
 
 # Single quotes only: the script is passed as one command-line argument.
 _PS = r"""
@@ -73,14 +73,35 @@ def _windows(os_):
             "build": build, "is_64bit": "64" in arch or "ARM" in arch.upper()}
 
 
+_INTEGRATED = re.compile(
+    r"\b(uhd|iris|hd graphics|intel\(r\) graphics|intel graphics)\b|"
+    r"^(amd )?radeon(\(tm\))? (integrated )?graphics$|radeon(\(tm\))? vega \d+ graphics|"
+    r"radeon \d{3}m\b|radeon.*\b\d{3}m graphics", re.I)
+_VRAM_IN_NAME = re.compile(r"(\d{1,2})\s*gb\b", re.I)
+
+
+def is_integrated(name):
+    return bool(_INTEGRATED.search((name or "").strip()))
+
+
 def describe_gpu(name, vram_gb=None):
-    """Score one adapter name (also used for manual 'what if' overrides)."""
+    """Score one adapter name (also used for manual 'what if' overrides).
+
+    DirectX support here is an estimate from the model; detected adapters get
+    the probed value in _build.
+    """
     hit = matcher.identify_gpu(name)
+    if vram_gb is None:
+        m = _VRAM_IN_NAME.search(name or "")
+        vram_gb = float(m.group(1)) if m else None
     return {"name": name.strip(), "vram_gb": vram_gb,
             "score": hit["score"] if hit else None,
             "vendor": hit["vendor"] if hit else None,
             "kind": hit["kind"] if hit else None,
-            "matched": hit["name"] if hit else None}
+            "matched": hit["name"] if hit else None,
+            "integrated": is_integrated(name) or bool(hit and is_integrated(hit["name"])),
+            "directx": dx.estimate_from_model(hit["name"] if hit else name)
+            or dx.estimate_from_model(name)}
 
 
 def describe_cpu(name, cores=None, threads=None, mhz=None):
@@ -115,7 +136,26 @@ def choose_gpu(adapters):
     return best, reason
 
 
-def _build(data):
+def _norm(name):
+    return re.sub(r"[^a-z0-9]", "", re.sub(r"\((r|tm)\)", "", (name or "").lower()))
+
+
+def _apply_probe(adapters, probed):
+    """Attach probed DirectX support (and DXGI memory sizes) to each adapter."""
+    for a in adapters:
+        hit = next((p for p in probed if not p["software"] and _norm(p["name"]) == _norm(a["name"])), None)
+        if hit and hit["directx"]:
+            a["directx"] = {"directx": hit["directx"], "feature_level": hit["feature_level"],
+                            "source": "detected"}
+        elif a.get("directx"):
+            a["directx"] = dict(a["directx"])
+        if hit:
+            if not a.get("vram_gb") and hit["dedicated_gb"] >= 0.25:
+                a["vram_gb"] = hit["dedicated_gb"]
+            a["shared_gb"] = hit["shared_gb"]
+
+
+def _build(data, probed=None):
     c = data.get("cpu") or {}
     cpu = describe_cpu(c.get("Name") or "Unknown CPU",
                        _int(c.get("NumberOfCores")) or None,
@@ -145,6 +185,7 @@ def _build(data):
             display = {"width": w, "height": h,
                        "hz": _int(g.get("CurrentRefreshRate")) or None}
 
+    _apply_probe(adapters, probed or [])
     best, reason = choose_gpu(adapters)
     for a in adapters:
         a["selected"] = a is best
@@ -164,9 +205,13 @@ def _build(data):
         "cpu": cpu, "gpu": best, "gpu_reason": reason, "adapters": adapters,
         "ram_gb": ram_gb, "os": os_, "drives": drives,
         "best_drive": max(drives, key=lambda d: d["free_gb"]) if drives else None,
-        "directx": 12 if (os_["version"] or 0) >= 10 else 11 if os_["version"] else None,
+        # The runtime ships with Windows; what games can use depends on the
+        # graphics hardware, which is per adapter (gpu["directx"]).
+        "dx_runtime": 12 if (os_["version"] or 0) >= 10 else 11 if (os_["version"] or 0) >= 7 else None,
+        "directx": ((best or {}).get("directx") or {}).get("directx"),
         "display": display,
         "system": " ".join(x for x in (sys_.get("Manufacturer"), sys_.get("Model")) if x),
+        "simulated": False,
     }
 
 
@@ -174,18 +219,32 @@ def detect(refresh=False):
     global _cache
     with _lock:
         if _cache is None or refresh:
-            _cache = _build(_run_powershell())
+            _cache = _build(_run_powershell(), dx.probe())
         return _cache
 
 
-def with_overrides(specs, cpu=None, gpu=None, ram=None):
+def with_overrides(specs, cpu=None, gpu=None, ram=None, vram=None, label=None):
     """A copy of `specs` with parts swapped ('what if I upgraded...')."""
     out = dict(specs)
+    changed = []
     if cpu:
         out["cpu"] = describe_cpu(cpu)
+        changed.append("cpu")
     if gpu:
-        known = next((a for a in specs["adapters"] if a["name"] == gpu), None)
-        out["gpu"] = known or describe_gpu(gpu)
+        known = next((a for a in specs.get("adapters", []) if a["name"] == gpu), None)
+        out["gpu"] = dict(known) if known else describe_gpu(gpu)
+        if not known:
+            changed.append("gpu")
+    if vram:
+        out["gpu"] = dict(out.get("gpu") or describe_gpu("Unknown graphics card"), vram_gb=vram)
+        changed.append("vram")
     if ram:
         out["ram_gb"] = ram
+        changed.append("ram")
+    out["directx"] = ((out.get("gpu") or {}).get("directx") or {}).get("directx")
+    if changed or label:
+        out["simulated"] = bool(changed) or bool(specs.get("simulated"))
+        out["changed"] = sorted(set(specs.get("changed", [])) | set(changed))
+    if label:
+        out["label"] = label
     return out

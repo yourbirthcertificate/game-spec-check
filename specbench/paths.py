@@ -35,5 +35,15 @@ def legal_file(name):
 if FROZEN:
     _base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
     CACHE_DIR = os.path.join(_base, "GameSpecCheck", "cache")
+    _DATA_DIR = os.path.join(_base, "GameSpecCheck", "data")
 else:
     CACHE_DIR = os.path.join(_SOURCE_ROOT, ".cache")
+    _DATA_DIR = os.path.join(_SOURCE_ROOT, ".data")
+
+
+def data_dir():
+    """Saved profiles, wanted games, mappings and scan results.
+
+    GSC_DATA_DIR overrides it (the tests use a temporary folder).
+    """
+    return os.environ.get("GSC_DATA_DIR") or _DATA_DIR

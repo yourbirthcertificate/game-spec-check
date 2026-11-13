@@ -3,50 +3,22 @@
 SteamDB has no public API and asks not to be scraped; its requirement data
 is Steam's own, which is what the store API below returns, so the app reads
 that and links out to the SteamDB page instead.
+
+Only game identifiers and search terms are sent. Request pacing and HTTP 429
+handling live in net.py.
 """
 import hashlib
 import json
 import os
-import threading
+import re
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 
-from . import requirements
+from . import net, requirements
+from .net import RateLimited, SourceError  # noqa: F401  (re-exported)
 from .paths import CACHE_DIR
 
-USER_AGENT = "GameSpecCheck/1.0 (local desktop tool)"
 _DAY = 86400
-_steam_gate = threading.Lock()
-_last_steam = [0.0]
-
-
-class SourceError(Exception):
-    pass
-
-
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *a, **k):
-        return None
-
-
-def _get(url, timeout=20, follow=True):
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT,
-                                               "Accept-Language": "en"})
-    opener = urllib.request.build_opener() if follow else \
-        urllib.request.build_opener(_NoRedirect)
-    try:
-        with opener.open(req, timeout=timeout) as resp:
-            return resp.status, resp.headers, resp.read()
-    except urllib.error.HTTPError as e:
-        if not follow and e.code in (301, 302, 303, 307, 308):
-            return e.code, e.headers, b""
-        if e.code == 429:
-            raise SourceError("The source is rate-limiting requests; wait a minute and retry.")
-        raise SourceError("The source answered HTTP %d." % e.code)
-    except (urllib.error.URLError, OSError) as e:
-        raise SourceError("Could not reach the source (%s)." % getattr(e, "reason", e))
 
 
 def _cached(key, ttl, producer):
@@ -60,27 +32,30 @@ def _cached(key, ttl, producer):
         pass
     value = producer()
     try:
-        with open(path, "w", encoding="utf-8") as fh:
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(value, fh)
+        os.replace(tmp, path)
     except OSError:
         pass
     return value
 
 
-def _steam_json(url):
-    # Steam allows roughly 200 store calls per 5 minutes: space them out.
-    with _steam_gate:
-        wait = 0.35 - (time.time() - _last_steam[0])
-        if wait > 0:
-            time.sleep(wait)
-        try:
-            _, _, body = _get(url)
-        finally:
-            _last_steam[0] = time.time()
+def _json(body, who):
     try:
         return json.loads(body.decode("utf-8", "replace"))
     except ValueError:
-        raise SourceError("Steam returned an unreadable answer.")
+        raise SourceError("%s returned an unreadable answer." % who)
+
+
+def _steam_json(url):
+    _, _, body = net.fetch(net.STEAM, url)
+    return _json(body, "Steam")
+
+
+def _pcgw_json(url):
+    _, _, body = net.fetch(net.PCGW, url)
+    return _json(body, "PCGamingWiki")
 
 
 # ------------------------------------------------------------------ search
@@ -99,10 +74,9 @@ def search_pcgw(term):
     def run():
         q = urllib.parse.urlencode({"action": "opensearch", "search": term,
                                     "limit": 8, "namespace": 0, "format": "json"})
-        _, _, body = _get("https://www.pcgamingwiki.com/w/api.php?" + q)
-        data = json.loads(body.decode("utf-8", "replace"))
+        data = _pcgw_json("https://www.pcgamingwiki.com/w/api.php?" + q)
         return [{"source": "pcgw", "id": t, "name": t, "image": None}
-                for t in (data[1] if len(data) > 1 else [])]
+                for t in (data[1] if isinstance(data, list) and len(data) > 1 else [])]
     return _cached("pcgwsearch:" + term.lower(), _DAY, run)
 
 
@@ -113,7 +87,7 @@ def steam_game(appid):
     def run():
         q = urllib.parse.urlencode({"appids": appid, "l": "english", "cc": "US"})
         data = _steam_json("https://store.steampowered.com/api/appdetails?" + q)
-        node = data.get(str(appid)) or {}
+        node = (data or {}).get(str(appid)) or {}
         if not node.get("success"):
             return {"missing": True}
         d = node["data"]
@@ -130,24 +104,36 @@ def steam_game(appid):
         raise SourceError("Steam has no store page for app %s." % appid)
     levels = {}
     for level in ("minimum", "recommended"):
-        parsed = requirements.parse_steam(out["pc"].get(level))
+        parsed = requirements.parse_steam((out.get("pc") or {}).get(level))
         if parsed:
             levels[level] = parsed
     out["levels"] = levels
     return out
 
 
-def pcgw_title_for_appid(appid):
+def _pcgw_redirect(url, key):
     def run():
-        status, headers, _ = _get(
-            "https://www.pcgamingwiki.com/api/appid.php?appid=%s" % appid,
-            follow=False)
-        loc = headers.get("Location") or ""
+        status, headers, _ = net.fetch(net.PCGW, url, follow=False)
+        loc = (headers or {}).get("Location") or ""
         if "/wiki/" not in loc:
             return {"title": None}
         title = urllib.parse.unquote(loc.split("/wiki/", 1)[1]).replace("_", " ")
         return {"title": None if title.lower().startswith("special:") else title}
-    return _cached("pcgwappid:%s" % appid, 30 * _DAY, run)["title"]
+    return _cached(key, 30 * _DAY, run)["title"]
+
+
+def pcgw_title_for_appid(appid):
+    return _pcgw_redirect("https://www.pcgamingwiki.com/api/appid.php?appid=%s" % appid,
+                          "pcgwappid:%s" % appid)
+
+
+def pcgw_title_for_gog(gog_id):
+    """PCGamingWiki page for a GOG product id (an exact, verified mapping)."""
+    return _pcgw_redirect("https://www.pcgamingwiki.com/api/gog.php?page=%s"
+                          % urllib.parse.quote(str(gog_id)), "pcgwgog:%s" % gog_id)
+
+
+_INFOBOX_APPID = re.compile(r"\|\s*steam appid\s*=\s*([0-9]+)", re.I)
 
 
 def pcgw_game(title):
@@ -156,17 +142,18 @@ def pcgw_game(title):
         q = urllib.parse.urlencode({"action": "parse", "page": title,
                                     "prop": "wikitext", "redirects": 1,
                                     "format": "json"})
-        _, _, body = _get("https://www.pcgamingwiki.com/w/api.php?" + q)
-        data = json.loads(body.decode("utf-8", "replace"))
-        if "parse" not in data:
+        data = _pcgw_json("https://www.pcgamingwiki.com/w/api.php?" + q)
+        if not isinstance(data, dict) or "parse" not in data:
             return {"missing": True}
         text = data["parse"]["wikitext"]["*"]
+        m = _INFOBOX_APPID.search(text)
         return {"name": data["parse"].get("title") or title, "image": None,
+                "steam_appid": m.group(1) if m else None,
                 "wikitext": "\n".join(requirements.pcgw_blocks(text))}
-    out = dict(_cached("pcgwgame2:" + title.lower(), 7 * _DAY, run))
+    out = dict(_cached("pcgwgame3:" + title.lower(), 7 * _DAY, run))
     if out.get("missing"):
         raise SourceError("PCGamingWiki has no page called \"%s\"." % title)
-    out["levels"] = requirements.parse_pcgw(out.pop("wikitext"))
+    out["levels"] = requirements.parse_pcgw(out.pop("wikitext", ""))
     return out
 
 
@@ -177,5 +164,7 @@ def links(source, ident, name=None):
             {"label": "SteamDB", "url": "https://steamdb.info/app/%s/info/" % ident},
             {"label": "PCGamingWiki", "url": "https://www.pcgamingwiki.com/api/appid.php?appid=%s" % ident},
         ]
-    page = urllib.parse.quote(ident.replace(" ", "_"))
-    return [{"label": "PCGamingWiki", "url": "https://www.pcgamingwiki.com/wiki/" + page}]
+    if source == "pcgw":
+        page = urllib.parse.quote(ident.replace(" ", "_"))
+        return [{"label": "PCGamingWiki", "url": "https://www.pcgamingwiki.com/wiki/" + page}]
+    return []

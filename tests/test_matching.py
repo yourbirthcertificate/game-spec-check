@@ -190,7 +190,9 @@ class Requirements(unittest.TestCase):
         weak = dict(me, gpu=specs.describe_gpu("Intel HD Graphics 4000"), ram_gb=4)
         res = compare.compare(weak, requirements.analyze(requirements.parse_steam(self.STEAM)))
         self.assertEqual(res["verdict"], "fail")
-        self.assertEqual(sorted(res["failing"]), ["Graphics", "Memory"])
+        # The listing asks for 3 GB of video memory; integrated graphics on a
+        # 4 GB machine can borrow about 2 GB, which is not enough.
+        self.assertEqual(sorted(res["failing"]), ["Graphics", "Memory", "Video memory"])
 
 
 if __name__ == "__main__":

@@ -1,6 +1,9 @@
 # Cached game lookups (rebuilt on demand)
 .cache/
 
+# Saved profiles, wanted games, mappings and scan results when run from source
+.data/
+
 # Python
 __pycache__/
 *.py[cod]
