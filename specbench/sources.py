@@ -21,11 +21,15 @@ from .paths import CACHE_DIR
 _DAY = 86400
 
 
-def _cached(key, ttl, producer):
+def _cached(key, ttl, producer, refresh=False):
+    """The cached value for `key` if younger than `ttl` seconds, else a new one.
+
+    `refresh` skips the cached copy and replaces it.
+    """
     os.makedirs(CACHE_DIR, exist_ok=True)
     path = os.path.join(CACHE_DIR, hashlib.sha1(key.encode()).hexdigest()[:20] + ".json")
     try:
-        if time.time() - os.path.getmtime(path) < ttl:
+        if not refresh and time.time() - os.path.getmtime(path) < ttl:
             with open(path, encoding="utf-8") as fh:
                 return json.load(fh)
     except (OSError, ValueError):

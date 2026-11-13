@@ -135,6 +135,18 @@ input, select {
   background: var(--close-bg); border: 1px solid var(--close);
   border-radius: var(--radius); padding: 10px 16px; margin-top: 12px;
 }
+.sim.update { display: block; background: var(--surface); border-color: var(--accent); }
+.up-main { display: flex; align-items: center; justify-content: space-between; gap: 10px 16px; flex-wrap: wrap; }
+.up-main a { margin-left: 6px; }
+.up-notes { margin-top: 8px; }
+.up-notes summary { cursor: pointer; color: var(--accent); font-weight: 600; font-size: 14px; }
+.up-notes p { margin-top: 6px; }
+.up-text { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; color: var(--muted); font-size: 14px; }
+.up-settings { display: grid; gap: 10px; justify-items: start; margin-top: 10px; }
+.up-settings label { display: flex; gap: 8px; align-items: center; }
+.up-settings input[type="checkbox"] { width: 16px; height: 16px; padding: 0; accent-color: var(--accent); }
+#up-result { margin-top: 10px; }
+#up-result .up-main { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 14px; }
 
 /* ---------- ask ---------- */
 .ask { padding: 36px 0 8px; }

@@ -1448,6 +1448,7 @@ $('.tabs').addEventListener('click', e => {
 
 renderChips();
 loadState();
+if (window.GSCUpdate) window.GSCUpdate.notice($('#update'));
 loadSpecs().then(() => {
   const m = location.hash.match(/^#(steam|pcgw)\/(.+)$/);
   if (m) openGame(m[1], decodeURIComponent(m[2]), '', true);
