@@ -57,6 +57,12 @@ class Providers(unittest.TestCase):
     def p(self, *parts):
         return os.path.join(self.tmp, *parts)
 
+    def fenv(self, registry=None, drives=()):
+        """An Env that sees only this test's temp folders, never the real PC."""
+        return Env(registry=registry or {}, drives=list(drives),
+                   environ={"ProgramData": self.p("PD"), "ProgramFiles": self.p("PF"),
+                            "ProgramFiles(x86)": self.p("PF86"), "APPDATA": self.p("AppData")})
+
     def test_steam_libraries_and_bad_manifests(self):
         root, lib2 = self.p("Steam"), self.p("Lib2")
         touch(os.path.join(root, "steamapps", "libraryfolders.vdf"),
@@ -69,7 +75,7 @@ class Providers(unittest.TestCase):
         touch(os.path.join(lib2, "steamapps", "appmanifest_20.acf"),
               '"AppState" { "appid" "20" "name" "Moved Game" "installdir" "gone" }')
         touch(os.path.join(lib2, "steamapps", "appmanifest_30.acf"), "garbage")
-        env = Env(registry={r"HKCU\Software\Valve\Steam": {"SteamPath": root}})
+        env = self.fenv({r"HKCU\Software\Valve\Steam": {"SteamPath": root}})
         res = launchers.scan_steam(env, self.ctx)
         by_id = {i["provider_id"]: i for i in res["installs"]}
         self.assertEqual(set(by_id), {"10", "20"})
@@ -80,8 +86,38 @@ class Providers(unittest.TestCase):
         self.assertIn("could not be read", res["message"])
 
     def test_steam_not_installed(self):
-        res = launchers.scan_steam(Env(registry={}), self.ctx)
+        res = launchers.scan_steam(self.fenv(), self.ctx)
         self.assertEqual(res["status"], "not_installed")
+
+    def test_steam_game_folder_without_manifest(self):
+        root = self.p("Steam")
+        common = os.path.join(root, "steamapps", "common")
+        touch(os.path.join(root, "steamapps", "appmanifest_10.acf"),
+              '"AppState" { "appid" "10" "name" "Listed" "installdir" "listed" }')
+        touch(os.path.join(common, "listed", "listed.exe"))
+        touch(os.path.join(common, "Forgotten", "forgotten.exe"))
+        touch(os.path.join(common, "Forgotten", "steam_appid.txt"), "4000\n")
+        touch(os.path.join(common, "Leftover", "saves", "slot1.sav"))      # no exe: uninstall leftovers
+        touch(os.path.join(common, "Steamworks Shared", "x.exe"))
+        res = launchers.scan_steam(self.fenv({r"HKCU\Software\Valve\Steam": {"SteamPath": root}}), self.ctx)
+        by = {i["title"]: i for i in res["installs"]}
+        self.assertEqual(sorted(by), ["Forgotten", "Listed"])
+        self.assertEqual((by["Forgotten"]["confidence"], by["Forgotten"]["ids"]), ("medium", {"steam": "4000"}))
+        self.assertIsNone(by["Forgotten"]["launch"])
+        self.assertIn("Steam has no record of it", res["message"])
+        # Older manifests store an escaped path relative to the library.
+        touch(os.path.join(root, "steamapps", "appmanifest_390220.acf"),
+              '"AppState" { "appid" "390220" "name" "Toilet Tycoon" '
+              '"installdir" "SteamApps\\\\\\\\common\\\\\\\\Toilet Tycoon\\\\\\\\" }')
+        touch(os.path.join(common, "Toilet Tycoon", "game.exe"))
+        res = launchers.scan_steam(self.fenv({r"HKCU\Software\Valve\Steam": {"SteamPath": root}}), self.ctx)
+        tt = [i for i in res["installs"] if i["title"] == "Toilet Tycoon"]
+        self.assertEqual([(i["confidence"], i["present"]) for i in tt], [("high", True)])
+        # A library on another drive is found even with Steam itself gone.
+        drive = self.p("E") + os.sep
+        touch(os.path.join(drive, "SteamLibrary", "steamapps", "common", "Old", "old.exe"))
+        res = launchers.scan_steam(self.fenv(drives=[drive]), self.ctx)
+        self.assertEqual(([i["title"] for i in res["installs"]], res["status"]), (["Old"], "ok"))
 
     def test_epic_manifests(self):
         data = self.p("Epic")
@@ -99,15 +135,50 @@ class Providers(unittest.TestCase):
         touch(os.path.join(man, "half.item"), json.dumps({
             "DisplayName": "Half Installed", "AppName": "half", "bIsIncompleteInstall": True}))
         touch(os.path.join(man, "broken.item"), "{not json")
-        env = Env(registry={r"HKLM\SOFTWARE\WOW6432Node\Epic Games\EpicGamesLauncher": {"AppDataPath": data}})
+        env = self.fenv({r"HKLM\SOFTWARE\WOW6432Node\Epic Games\EpicGamesLauncher": {"AppDataPath": data}})
         res = launchers.scan_epic(env, self.ctx)
         self.assertEqual([i["title"] for i in res["installs"]], ["Fortnite"])
         inst = res["installs"][0]
         self.assertEqual(inst["ids"], {"epic": "Fortnite"})
         self.assertIn("fn%3Aabc%3AFortnite", inst["launch"]["target"])
         self.assertIn("1 record", res["message"])
-        self.assertEqual(launchers.scan_epic(Env(registry={}, environ={"ProgramData": self.p("none")}),
-                                             self.ctx)["status"], "not_installed")
+        self.assertEqual(launchers.scan_epic(self.fenv(), self.ctx)["status"], "not_installed")
+
+    def epic_env(self, reg=True):
+        return self.fenv({r"HKLM\SOFTWARE\WOW6432Node\Epic Games\EpicGamesLauncher":
+                          {"AppDataPath": self.p("PD", "Epic", "EpicGamesLauncher", "Data")}} if reg else {})
+
+    def test_epic_launcher_without_records_is_not_called_missing(self):
+        os.makedirs(self.p("PD", "Epic", "EpicGamesLauncher", "Data"))
+        res = launchers.scan_epic(self.epic_env(), self.ctx)
+        self.assertEqual((res["status"], res["installs"]), ("ok", []))
+        self.assertIn("lists no installed games", res["message"])
+
+    def test_epic_game_folder_the_launcher_forgot(self):
+        lib = self.p("PF", "Epic Games")
+        touch(os.path.join(lib, "Fortnite", ".egstore", "D361.manifest"), b"\x0c\xc0\xbe\x44")
+        touch(os.path.join(lib, "Launcher", "Portal", "x.exe"))
+        touch(os.path.join(lib, "OtherGame", ".egstore", "a.mancpn"),
+              json.dumps({"AppName": "Other", "CatalogNamespace": "ns", "CatalogItemId": "cat"}))
+        os.makedirs(os.path.join(lib, "NotAGame"))
+        res = launchers.scan_epic(self.epic_env(), self.ctx)
+        by = {i["title"]: i for i in res["installs"]}
+        self.assertEqual(sorted(by), ["Fortnite", "OtherGame"])
+        self.assertEqual((by["Fortnite"]["confidence"], by["Fortnite"]["launch"]), ("medium", None))
+        self.assertIn("ns%3Acat%3AOther", by["OtherGame"]["launch"]["target"])
+        self.assertIn("has no record of them", res["message"])
+        # Without the launcher's registry key the folders still count.
+        self.assertEqual(launchers.scan_epic(self.epic_env(reg=False), self.ctx)["status"], "ok")
+
+    def test_epic_install_list_and_no_duplicates(self):
+        game = self.p("PF", "Epic Games", "Hades")
+        touch(os.path.join(game, ".egstore", "x.manifest"))
+        touch(self.p("PD", "Epic", "UnrealEngineLauncher", "LauncherInstalled.dat"), json.dumps(
+            {"InstallationList": [{"InstallLocation": game, "AppName": "Min", "NamespaceId": "n",
+                                   "ItemId": "i"}]}))
+        res = launchers.scan_epic(self.epic_env(), self.ctx)
+        self.assertEqual([(i["title"], i["confidence"]) for i in res["installs"]], [("Hades", "high")])
+        self.assertIn("n%3Ai%3AMin", res["installs"][0]["launch"]["target"])
 
     def test_gog_registry(self):
         game = self.p("GOG", "Witcher")
@@ -119,11 +190,53 @@ class Providers(unittest.TestCase):
             r"HKLM\SOFTWARE\WOW6432Node\GOG.com\Games\2": {"gameName": "A DLC", "path": game,
                                                           "dependsOn": "1207658924"},
         }
-        res = launchers.scan_gog(Env(registry=reg), self.ctx)
+        res = launchers.scan_gog(self.fenv(reg), self.ctx)
         self.assertEqual(len(res["installs"]), 1)
         inst = res["installs"][0]
         self.assertEqual((inst["ids"], inst["edition"]), ({"gog": "1207658924"}, "Enhanced Edition"))
         self.assertEqual(inst["launch"]["kind"], "exe")
+
+    def test_gog_folders_without_registry(self):
+        lib = self.p("PF86", "GOG Galaxy", "Games")
+        game = os.path.join(lib, "Stardew")
+        touch(os.path.join(game, "Stardew Valley.exe"))
+        touch(os.path.join(game, "goggame-1453375253.info"), json.dumps({
+            "gameId": "1453375253", "rootGameId": "1453375253", "name": "Stardew Valley",
+            "playTasks": [{"type": "FileTask", "isPrimary": True, "path": "Stardew Valley.exe"}]}))
+        touch(os.path.join(game, "goggame-999.info"), json.dumps({
+            "gameId": "999", "rootGameId": "1453375253", "name": "A DLC"}))
+        touch(os.path.join(lib, "Evil", "goggame-1.info"), json.dumps({
+            "gameId": "1", "name": "Evil", "playTasks": [{"type": "FileTask", "path": "..\\..\\x.exe"}]}))
+        res = launchers.scan_gog(self.fenv(), self.ctx)
+        by = {i["title"]: i for i in res["installs"]}
+        self.assertEqual(sorted(by), ["Evil", "Stardew Valley"])
+        sv = by["Stardew Valley"]
+        self.assertEqual((sv["confidence"], sv["ids"]), ("medium", {"gog": "1453375253"}))
+        self.assertTrue(sv["launch"]["target"].endswith("Stardew Valley.exe"))
+        self.assertIsNone(by["Evil"]["launch"])          # a play task outside the folder is ignored
+        self.assertIn("GOG has no record of them", res["message"])
+        self.assertEqual(launchers.scan_gog(self.fenv(), self.ctx)["status"], "ok")
+        shutil.rmtree(lib)
+        self.assertEqual(launchers.scan_gog(self.fenv(), self.ctx)["status"], "not_installed")
+
+    def test_unlisted_ubisoft_ea_battlenet_folders(self):
+        touch(self.p("PF86", "Ubisoft", "Ubisoft Game Launcher", "games", "Far Cry 5", "uplay_install.state"))
+        touch(self.p("PF", "EA Games", "Mass Effect", "__Installer", "installerdata.xml"),
+              '<DiPManifest><gameTitles><gameTitle locale="en_US">Mass Effect Legendary Edition</gameTitle>'
+              '</gameTitles></DiPManifest>')
+        ow = self.p("PF86", "Overwatch")
+        touch(os.path.join(ow, ".build.info"))
+        touch(os.path.join(ow, ".product.db"))
+        touch(self.p("PF86", "Half Product", ".build.info"))     # needs both files
+        env = self.fenv()
+        u = launchers.scan_ubisoft(env, self.ctx)
+        self.assertEqual([(i["title"], i["confidence"]) for i in u["installs"]], [("Far Cry 5", "medium")])
+        self.assertIn("Locate installed game", u["message"])
+        e = launchers.scan_ea(env, self.ctx)
+        self.assertEqual([i["title"] for i in e["installs"]], ["Mass Effect Legendary Edition"])
+        b = launchers.scan_battlenet(env, self.ctx)
+        self.assertEqual([i["title"] for i in b["installs"]], ["Overwatch"])
+        self.assertEqual(b["status"], "ok")
 
     def test_ubisoft_ea_battlenet(self):
         ubi = self.p("Ubi", "Crew")
@@ -139,14 +252,14 @@ class Providers(unittest.TestCase):
                                                            'Blizzard Uninstaller.exe" --uid=prometheus'},
             UNINSTALL + r"\Battle.net": {"DisplayName": "Battle.net", "UninstallString": "x"},
         }
-        env = Env(registry=reg)
+        env = self.fenv(reg)
         u = launchers.scan_ubisoft(env, self.ctx)["installs"]
         self.assertEqual((u[0]["title"], u[0]["launch"]["target"]), ("The Crew Motorfest", "uplay://launch/5595/0"))
         e = launchers.scan_ea(env, self.ctx)["installs"]
         self.assertEqual([(i["title"], i["confidence"], i["launch"]) for i in e], [("The Sims 4", "high", None)])
         b = launchers.scan_battlenet(env, self.ctx)
         self.assertEqual([i["provider_id"] for i in b["installs"]], ["prometheus"])
-        self.assertEqual(launchers.scan_battlenet(Env(registry={}), self.ctx)["status"], "not_installed")
+        self.assertEqual(launchers.scan_battlenet(self.fenv(), self.ctx)["status"], "not_installed")
 
     def test_itch_database_and_receipts(self):
         appdata = self.p("AppData")
@@ -164,6 +277,14 @@ class Providers(unittest.TestCase):
         con.close()
         res = launchers.scan_itch(Env(environ={"APPDATA": appdata}), self.ctx)
         self.assertEqual([i["title"] for i in res["installs"]], ["Celeste Classic"])
+        # A receipt in an install location the database does not list.
+        extra = self.p("itchapps", "extra", ".itch", "receipt.json.gz")
+        os.makedirs(os.path.dirname(extra))
+        with gzip.open(extra, "wb") as fh:
+            fh.write(json.dumps({"game": {"id": 9, "title": "Unlisted Jam Game", "classification": "game"}}).encode())
+        res = launchers.scan_itch(Env(environ={"APPDATA": appdata}), self.ctx)
+        self.assertEqual([(i["title"], i["confidence"]) for i in res["installs"]],
+                         [("Celeste Classic", "high"), ("Unlisted Jam Game", "medium")])
         os.remove(os.path.join(dbdir, "butler.db"))
         receipt = os.path.join(appdata, "itch", "apps", "game1", ".itch", "receipt.json.gz")
         os.makedirs(os.path.dirname(receipt))
@@ -184,8 +305,12 @@ class Providers(unittest.TestCase):
               '<ShellVisuals DefaultDisplayName="Starfield"/>'
               '<ExecutableList><Executable Name="Starfield.exe" Id="Game"/></ExecutableList></Game>')
         touch(os.path.join(drive, "XboxGames", "Broken", "Content", "MicrosoftGame.config"), "<Game")
-        res = launchers.scan_xbox(Env(drives=[drive]), self.ctx)
-        self.assertEqual([i["title"] for i in res["installs"]], ["Starfield"])
+        touch(self.p("PF", "ModifiableWindowsApps", "OldPass", "MicrosoftGame.config"),
+              '<Game><Identity Name="Old.Pass" Publisher="CN=X"/><ShellVisuals DefaultDisplayName="Old Pass Game"/>'
+              '<ExecutableList><Executable Id="Game"/></ExecutableList></Game>')
+        res = launchers.scan_xbox(self.fenv(drives=[drive]), self.ctx)
+        self.assertEqual(sorted(i["title"] for i in res["installs"]), ["Old Pass Game", "Starfield"])
+        res["installs"] = [i for i in res["installs"] if i["title"] == "Starfield"]
         self.assertEqual(res["installs"][0]["launch"]["target"],
                          "shell:AppsFolder\\BethesdaSoftworks.ProjectGold_8wekyb3d8bbwe!Game")
         self.assertEqual(launchers.publisher_id(
