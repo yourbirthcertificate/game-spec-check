@@ -36,9 +36,12 @@ if FROZEN:
     _base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
     CACHE_DIR = os.path.join(_base, "GameSpecCheck", "cache")
     _DATA_DIR = os.path.join(_base, "GameSpecCheck", "data")
+    # Where a new exe is downloaded before it replaces the running one.
+    UPDATE_DIR = os.path.join(_base, "GameSpecCheck", "update")
 else:
     CACHE_DIR = os.path.join(_SOURCE_ROOT, ".cache")
     _DATA_DIR = os.path.join(_SOURCE_ROOT, ".data")
+    UPDATE_DIR = None       # from source, updating is "git pull"
 
 
 def data_dir():

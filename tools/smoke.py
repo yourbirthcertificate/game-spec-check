@@ -3,8 +3,9 @@
     python tools/smoke.py dist\\GameSpecCheck.exe
     python tools/smoke.py run.py [--no-specs]
 
-Uses a free port and a temporary data folder, sends no requests to Steam or
-PCGamingWiki, and stops the app afterwards. Exit code 0 means every check passed.
+Uses a free port and a temporary data folder, sends no requests to Steam,
+PCGamingWiki or GitHub (the app runs with --no-update-check), and stops the
+app afterwards. Exit code 0 means every check passed.
 """
 import json
 import os
@@ -64,7 +65,7 @@ def main():
     port = free_port()
     env = dict(os.environ, GSC_DATA_DIR=tempfile.mkdtemp(prefix="gsc-smoke-"))
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    proc = subprocess.Popen(command(target, "--no-browser", "--port", str(port)), env=env,
+    proc = subprocess.Popen(command(target, "--no-browser", "--no-update-check", "--port", str(port)), env=env,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, creationflags=flags)
     base = "http://127.0.0.1:%d" % port
     try:
@@ -83,8 +84,10 @@ def main():
         for path, ctype, needle in (("/", "text/html", b"Game Spec Check"),
                                     ("/app.js", "text/javascript", b"openGame"),
                                     ("/logic.js", "text/javascript", b"SearchState"),
+                                    ("/update.js", "text/javascript", b"GSCUpdate"),
                                     ("/style.css", "text/css", b".lib-row"),
                                     ("/about.html", "text/html", b"No donations"),
+                                    ("/about.html", "text/html", b"does not show who built it"),
                                     ("/legal/LICENSE", "text/plain", b"PolyForm Noncommercial"),
                                     ("/legal/NOTICE", "text/plain", b"Required Notice"),
                                     ("/legal/CREDITS.md", "text/plain", b"PCGamingWiki"),
@@ -103,6 +106,11 @@ def main():
         state = json.loads(get(base, "/api/state")[2])
         check(isinstance(state.get("profiles"), list) and len(state.get("providers", [])) >= 10,
               "/api/state lists profiles and discovery providers")
+        upd = json.loads(get(base, "/api/update?force=1")[2])
+        check(upd.get("off_for_session") is True and upd.get("checked") is False,
+              "--no-update-check stops the update check")
+        status, body = post(base, "/api/update/install", {})
+        check(status == 400, "update install is refused while checks are off")
         status, body = post(base, "/api/paste/parse", {"minimum": "Memory: 8 GB\nGraphics: GTX 1060"})
         check(status == 200 and body["levels"]["minimum"]["fields"].get("ram") == "8 GB", "parses pasted requirements")
         status, body = post(base, "/api/report", {"name": "Smoke", "summary": {"headline": "x"}})

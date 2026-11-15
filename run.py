@@ -2,6 +2,7 @@
 
     python run.py                 start the app
     python run.py --no-browser    start without opening a browser tab
+    python run.py --no-update-check   do not ask GitHub for a newer version
     python run.py --check 1245620 print a verdict for one Steam app id and exit
 """
 import argparse
@@ -12,7 +13,7 @@ import urllib.request
 import webbrowser
 
 import specbench
-from specbench import paths, server, specs
+from specbench import paths, server, specs, update
 
 
 def already_running(port, timeout=1.0):
@@ -41,6 +42,8 @@ def main():
     ap = argparse.ArgumentParser(description="Compare this PC with game requirements.")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--no-browser", action="store_true")
+    ap.add_argument("--no-update-check", action="store_true",
+                    help="do not ask GitHub for a newer version")
     ap.add_argument("--verbose", action="store_true", help="log every request")
     ap.add_argument("--specs", action="store_true", help="print detected specs and exit")
     ap.add_argument("--check", metavar="APPID", help="check one Steam app id and exit")
@@ -73,6 +76,11 @@ def main():
             webbrowser.open(url)
         return
 
+    update.off_for_session = args.no_update_check
+    if paths.FROZEN:
+        # Files left by an earlier update; the old exe unlocks once it exits.
+        threading.Thread(target=update.clean_up, daemon=True).start()
+
     httpd = server.make_server(args.port, args.verbose)
     url = "http://127.0.0.1:%d/" % httpd.server_address[1]
     print("Game Spec Check %s is running." % specbench.__version__)
@@ -91,6 +99,11 @@ def main():
         httpd.serve_forever()
     except KeyboardInterrupt:
         print("\nStopped.")
+    httpd.server_close()
+    if update.restart_requested:
+        # The port is free now, so the new copy can take it.
+        print("Starting the new version...", flush=True)
+        update.start_new_copy(httpd.server_address[1])
 
 
 if __name__ == "__main__":
