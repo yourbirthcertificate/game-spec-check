@@ -80,7 +80,7 @@ Discovery only reads. It never runs a file, never signs in to anything and never
 | Source | What is read | Play button | Limits |
 | --- | --- | --- | --- |
 | Steam | `libraryfolders.vdf` and `appmanifest_*.acf` in every library | Yes, `steam://rungameid/` | Tools such as Proton and Steamworks Redistributables are left out. |
-| Epic Games | Launcher manifests (`*.item`) in ProgramData | Yes, through the launcher | DLC and unfinished installs are skipped. |
+| Epic Games | Launcher manifests (`*.item`) in ProgramData and the launcher's install list | Yes, through the launcher | DLC and unfinished installs are skipped. |
 | GOG | `HKLM\SOFTWARE\WOW6432Node\GOG.com\Games` | Yes, runs the exe GOG registered | DLC entries are skipped. |
 | Xbox app | `.GamingRoot` on each fixed drive and `MicrosoftGame.config` in each game folder | Yes, through `shell:AppsFolder` | Older Microsoft Store games in the protected WindowsApps folder cannot be listed. |
 | EA app | Installed-program records with EA install data (`__Installer\installerdata.xml`) | No, set an exe to add one | EA does not publish a documented way to start a game. |
@@ -91,6 +91,21 @@ Discovery only reads. It never runs a file, never signs in to anything and never
 | Start menu | Shortcuts in both Start menu folders, three levels deep | Opens the shortcut | Same game-file test. Shown for review first. |
 | Your folders | Each folder you add, one level deep | Runs the likeliest exe | Folders without game files are shown for review first. |
 | Added by you | Exes you add by hand | Yes | None. |
+
+Launchers lose track of games after a reinstall, a reset or a moved library, while the files stay on disk. So each store also looks, one level deep, in its library folders (where its known games are, its default folder, and the usual folder names at the top of each fixed drive) for game folders with that store's own install files:
+
+| Store | Install files it looks for |
+| --- | --- |
+| Steam | A folder with a game exe under `steamapps\common` that no manifest points to (`steam_appid.txt` gives its app id when present) |
+| Epic Games | `.egstore` |
+| GOG | `goggame-<id>.info` (its play task gives the exe, so Play still works) |
+| EA app | `__Installer\installerdata.xml` |
+| Ubisoft Connect | `uplay_install.state` or the Ubisoft loader DLL |
+| Battle.net | `.build.info` and `.product.db` |
+| itch.io | Install receipts the itch database does not list |
+| Xbox app | Also `Program Files\ModifiableWindowsApps`, where older Game Pass games went |
+
+These finds are marked medium confidence, and the provider's status says how many it found and how to get the launcher to pick them up again. Apart from GOG, they get no Play button of their own, because the launcher has to know about a game before it will start it. On the PC this was built on, the check found a Fortnite folder the Epic launcher had forgotten and made no false finds. GOG, EA, Battle.net, itch.io and Xbox games are not installed there, so those checks are tested only with made-up launcher files.
 
 Copies of the same game found by several sources are merged into one game with several installs. Games with the same Steam app id are the same game. Otherwise titles are compared after dropping cosmetic edition words (Deluxe, Gold, Game of the Year), while editions that are usually different builds (Remastered, Definitive, Special) stay separate. A launcher record whose folder is gone is shown as missing; a game whose folder moved keeps its place. You can hide any game, accept or ignore each uncertain find, and add folders or exes the scan missed.
 

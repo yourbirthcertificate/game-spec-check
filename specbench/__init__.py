@@ -1,5 +1,5 @@
 """Game Spec Check: compare this PC with published game requirements."""
-__version__ = "1.1.1"
+__version__ = "1.1.2"
 
 from . import compare, requirements, sources  # noqa: E402
 
