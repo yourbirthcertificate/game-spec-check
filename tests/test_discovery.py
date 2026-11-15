@@ -119,6 +119,32 @@ class Providers(unittest.TestCase):
         res = launchers.scan_steam(self.fenv(drives=[drive]), self.ctx)
         self.assertEqual(([i["title"] for i in res["installs"]], res["status"]), (["Old"], "ok"))
 
+    def test_steam_recovers_moved_game_without_replacing_present_install(self):
+        root = self.p("Steam")
+        common = os.path.join(root, "steamapps", "common")
+        for appid, name, dirname in (("10", "Moved Game", "gone"),
+                                     ("20", "Listed Game", "listed")):
+            touch(os.path.join(root, "steamapps", "appmanifest_%s.acf" % appid),
+                  '"AppState" { "appid" "%s" "name" "%s" "installdir" "%s" }' %
+                  (appid, name, dirname))
+        touch(os.path.join(common, "listed", "game.exe"))
+        for dirname, appid in (("Moved", "10"), ("MovedCopy", "10"), ("ListedCopy", "20")):
+            touch(os.path.join(common, dirname, "game.exe"))
+            touch(os.path.join(common, dirname, "steam_appid.txt"), appid)
+        env = self.fenv({r"HKCU\Software\Valve\Steam": {"SteamPath": root}})
+        res = launchers.scan_steam(env, self.ctx)
+        self.assertEqual(len(res["installs"]), 2)
+        by_id = {i["provider_id"]: i for i in res["installs"]}
+        recovered = by_id["10"]
+        self.assertEqual(recovered["path"], os.path.join(common, "Moved"))
+        self.assertTrue(recovered["present"])
+        self.assertEqual(recovered["install_id"], model.install_id("steam", "10"))
+        self.assertEqual(recovered["confidence"], "medium")
+        self.assertIsNone(recovered["launch"])
+        self.assertEqual((by_id["20"]["path"], by_id["20"]["confidence"]),
+                         (os.path.join(common, "listed"), "high"))
+        self.assertIn("1 game folder", res["message"])
+
     def test_epic_manifests(self):
         data = self.p("Epic")
         game_dir = self.p("Games", "Fortnite")
@@ -180,6 +206,43 @@ class Providers(unittest.TestCase):
         self.assertEqual([(i["title"], i["confidence"]) for i in res["installs"]], [("Hades", "high")])
         self.assertIn("n%3Ai%3AMin", res["installs"][0]["launch"]["target"])
 
+    def test_epic_fallbacks_preserve_manifest_exclusions(self):
+        lib = self.p("PF", "Epic Games")
+        manifests = self.p("PD", "Epic", "EpicGamesLauncher", "Data", "Manifests")
+        entries = []
+        for name, flags in (("HalfInstalled", {"bIsIncompleteInstall": True}),
+                            ("UE_5", {"AppCategories": ["engines"]}),
+                            ("Bonus", {"MainGameAppName": "BaseGame"}),
+                            ("Music", {"DisplayName": "Game Soundtrack"})):
+            path = os.path.join(lib, name)
+            touch(os.path.join(path, ".egstore", "game.manifest"))
+            manifest = {"DisplayName": name, "AppName": name, "InstallLocation": path}
+            manifest.update(flags)
+            touch(os.path.join(manifests, name + ".item"), json.dumps(manifest))
+            entries.append({"InstallLocation": path, "AppName": name})
+        # Check the folder fallback alone, and then both fallbacks together.
+        for install_list in (False, True):
+            with self.subTest(install_list=install_list):
+                if install_list:
+                    touch(self.p("PD", "Epic", "UnrealEngineLauncher", "LauncherInstalled.dat"),
+                          json.dumps({"InstallationList": entries}))
+                res = launchers.scan_epic(self.epic_env(), self.ctx)
+                self.assertEqual(res["installs"], [])
+                self.assertEqual(res["status"], "ok")
+
+    def test_epic_excluded_dlc_does_not_hide_base_game_in_same_folder(self):
+        path = self.p("PF", "Epic Games", "BaseGame")
+        touch(os.path.join(path, ".egstore", "game.manifest"))
+        manifests = self.p("PD", "Epic", "EpicGamesLauncher", "Data", "Manifests")
+        for filename, app, main in (("a_dlc.item", "DLC", "BaseGame"),
+                                    ("b_base.item", "BaseGame", "BaseGame")):
+            touch(os.path.join(manifests, filename), json.dumps({
+                "DisplayName": app, "AppName": app, "MainGameAppName": main,
+                "InstallLocation": path}))
+        res = launchers.scan_epic(self.epic_env(), self.ctx)
+        self.assertEqual([(i["provider_id"], i["confidence"]) for i in res["installs"]],
+                         [("BaseGame", "high")])
+
     def test_gog_registry(self):
         game = self.p("GOG", "Witcher")
         os.makedirs(game)
@@ -218,6 +281,36 @@ class Providers(unittest.TestCase):
         self.assertEqual(launchers.scan_gog(self.fenv(), self.ctx)["status"], "ok")
         shutil.rmtree(lib)
         self.assertEqual(launchers.scan_gog(self.fenv(), self.ctx)["status"], "not_installed")
+
+    def test_gog_recovers_moved_game_without_replacing_present_install(self):
+        lib = self.p("PF", "GOG Games")
+        old_path = self.p("OldLibrary", "Moved")
+        listed_path = os.path.join(lib, "Listed")
+        touch(os.path.join(listed_path, "game.exe"))
+        reg = {}
+        for gid, path in (("10", old_path), ("20", listed_path)):
+            reg[r"HKLM\SOFTWARE\WOW6432Node\GOG.com\Games" + "\\" + gid] = {
+                "gameName": "Game " + gid, "gameID": gid, "path": path,
+                "exe": os.path.join(path, "game.exe"), "workingDir": path}
+        for dirname, gid in (("Moved", "10"), ("MovedCopy", "10"), ("ListedCopy", "20")):
+            path = os.path.join(lib, dirname)
+            touch(os.path.join(path, "game.exe"))
+            touch(os.path.join(path, "goggame-%s.info" % gid), json.dumps({
+                "gameId": gid, "name": "Game " + gid,
+                "playTasks": [{"type": "FileTask", "isPrimary": True, "path": "game.exe"}]}))
+        res = launchers.scan_gog(self.fenv(reg), self.ctx)
+        self.assertEqual(len(res["installs"]), 2)
+        by_id = {i["provider_id"]: i for i in res["installs"]}
+        recovered = by_id["10"]
+        new_path = os.path.join(lib, "Moved")
+        self.assertEqual(recovered["path"], new_path)
+        self.assertTrue(recovered["present"])
+        self.assertEqual(recovered["install_id"], model.install_id("gog", "10"))
+        self.assertEqual(recovered["confidence"], "medium")
+        self.assertEqual(recovered["launch"],
+                         {"kind": "exe", "target": os.path.join(new_path, "game.exe"), "cwd": new_path})
+        self.assertEqual((by_id["20"]["path"], by_id["20"]["confidence"]), (listed_path, "high"))
+        self.assertIn("1 game folder", res["message"])
 
     def test_unlisted_ubisoft_ea_battlenet_folders(self):
         touch(self.p("PF86", "Ubisoft", "Ubisoft Game Launcher", "games", "Far Cry 5", "uplay_install.state"))

@@ -181,7 +181,7 @@ def scan_steam(env, ctx):
     # Usual library folders, for a Steam that lost track of them.
     for lib in library_roots(env, program_files=["Steam"], drive_dirs=["SteamLibrary", "Steam"]):
         folders.setdefault(_key(lib), lib)
-    installs, skipped, seen_ids, seen = [], 0, set(), set()
+    installs, skipped, by_id, seen = [], 0, {}, set()
     for folder in folders.values():
         for manifest in glob.glob(os.path.join(folder, "steamapps", "appmanifest_*.acf")):
             ctx.check()
@@ -193,9 +193,9 @@ def scan_steam(env, ctx):
             path = _steam_game_path(folder, info.get("installdir"))
             if path:
                 seen.add(_key(path))      # also tools, so they are not "found" below
-            if NOT_GAME_STRICT.search(name) or appid in seen_ids:
+            if NOT_GAME_STRICT.search(name) or appid in by_id:
                 continue
-            seen_ids.add(appid)
+            by_id[appid] = len(installs)
             installs.append(make_install(
                 "steam", name, provider_id=appid, path=path,
                 launch={"kind": "uri", "target": "steam://rungameid/%s" % appid},
@@ -205,12 +205,20 @@ def scan_steam(env, ctx):
     found = 0
     for folder, name, info in unlisted([c for c in commons if os.path.isdir(c)], _steam_folder,
                                        seen, ctx, _STEAM_NOT_GAMES):
-        if info["appid"] in seen_ids:
+        appid = info["appid"]
+        index = by_id.get(appid)
+        if index is not None and installs[index]["present"]:
             continue
-        installs.append(make_install(
-            "steam", name, provider_id=info["appid"], path=folder, confidence="medium",
+        inst = make_install(
+            "steam", name, provider_id=appid, path=folder, confidence="medium",
             evidence="Game folder in a Steam library that Steam has no record of.",
-            ids={"steam": info["appid"]}))
+            ids={"steam": appid})
+        if index is not None:
+            installs[index] = inst       # replace the stale path, keeping the game's identity
+        else:
+            if appid:
+                by_id[appid] = len(installs)
+            installs.append(inst)
         found += 1
     if not root and not installs:
         return not_installed("Steam is not installed.")
@@ -256,7 +264,7 @@ def scan_epic(env, ctx):
     data_dir = env.reg_values(HKLM, _EPIC_KEY).get("AppDataPath") or \
         os.path.join(program_data, "Epic", "EpicGamesLauncher", "Data")
     launcher = env.reg_exists(HKLM, _EPIC_KEY) or os.path.isdir(data_dir)
-    installs, skipped, seen = [], 0, set()
+    installs, skipped, seen, excluded = [], 0, set(), set()
 
     def add(inst):
         key = _key(inst["path"]) if inst["path"] else inst["install_id"]
@@ -275,15 +283,15 @@ def scan_epic(env, ctx):
             skipped += 1
             continue
         name, app = m.get("DisplayName"), m.get("AppName")
-        if not name or not app or m.get("bIsIncompleteInstall"):
+        if not name or not app:
             continue
         cats = m.get("AppCategories")
-        if isinstance(cats, list) and cats and "games" not in cats:
-            continue
         main = m.get("MainGameAppName")
-        if main and main != app:          # DLC installed into a game
-            continue
-        if NOT_GAME_STRICT.search(name):
+        if m.get("bIsIncompleteInstall") or \
+                (isinstance(cats, list) and cats and "games" not in cats) or \
+                (main and main != app) or NOT_GAME_STRICT.search(name):
+            if m.get("InstallLocation"):
+                excluded.add(_key(m["InstallLocation"]))
             continue
         add(make_install(
             "epic", name, provider_id=app, path=m.get("InstallLocation"),
@@ -291,6 +299,8 @@ def scan_epic(env, ctx):
             size_gb=_gb(m.get("InstallSize")), evidence="Epic Games Launcher manifest.",
             ids={"epic": app}))
 
+    # Apply exclusions only to fallbacks: DLC can share a valid base game's folder.
+    seen.update(excluded)
     dat_path = os.path.join(program_data, "Epic", "UnrealEngineLauncher", "LauncherInstalled.dat")
     if os.path.isfile(dat_path):
         launcher = True
@@ -358,7 +368,7 @@ def _gog_folder(folder):
 
 def scan_gog(env, ctx):
     launcher = env.reg_exists(HKLM, r"SOFTWARE\WOW6432Node\GOG.com\GalaxyClient")
-    installs, seen, seen_ids = [], set(), set()
+    installs, seen, by_id = [], set(), {}
     for sub in env.reg_subkeys(HKLM, _GOG_KEY):
         ctx.check()
         v = env.reg_values(HKLM, _GOG_KEY + "\\" + sub)
@@ -368,9 +378,9 @@ def scan_gog(env, ctx):
             continue
         exe = v.get("exe") or v.get("EXE")
         launch = {"kind": "exe", "target": exe, "cwd": v.get("workingDir") or path} if exe else None
+        by_id[gid] = len(installs)
         installs.append(make_install("gog", name, provider_id=gid, path=path, launch=launch,
                                      evidence="GOG registry entry.", ids={"gog": gid}))
-        seen_ids.add(gid)
         if path:
             seen.add(_key(path))
     roots = library_roots(env, known=[i["path"] for i in installs],
@@ -378,15 +388,21 @@ def scan_gog(env, ctx):
                           drive_dirs=["GOG Games", os.path.join("GOG Galaxy", "Games")])
     found = 0
     for folder, _, info in unlisted(roots, _gog_folder, seen, ctx):
-        if info["id"] in seen_ids:
+        gid = info["id"]
+        index = by_id.get(gid)
+        if index is not None and installs[index]["present"]:
             continue
-        seen_ids.add(info["id"])
         exe = info["exe"]
-        installs.append(make_install(
-            "gog", info["name"], provider_id=info["id"], path=folder, confidence="medium",
+        inst = make_install(
+            "gog", info["name"], provider_id=gid, path=folder, confidence="medium",
             launch={"kind": "exe", "target": exe, "cwd": os.path.dirname(exe)} if exe else None,
             evidence="GOG game folder (goggame .info file) that is not registered with Windows.",
-            ids={"gog": info["id"]}))
+            ids={"gog": gid})
+        if index is not None:
+            installs[index] = inst       # rebuild the launch target from the recovered folder
+        else:
+            by_id[gid] = len(installs)
+            installs.append(inst)
         found += 1
     if not installs:
         if launcher:
