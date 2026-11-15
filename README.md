@@ -4,6 +4,8 @@ A small Windows app that answers one question: can this PC run that game?
 
 It reads the hardware in your machine, finds the games you have installed, looks up the requirements each game's publisher lists, and puts the two side by side with a plain answer on top. It does the same job as Can You Run It or PCGameBenchmark, but it runs on your own computer and your hardware details are never uploaded.
 
+Its sister project, [GameOptimizer](https://github.com/yourbirthcertificate/game-optimizer), takes the next step: once you know a game will run, it sets the game's graphics settings for your PC in one click. The two share this app's graphics card scores, and GameOptimizer reuses the requirement lookups this app has cached.
+
 ## About this project
 
 - **A personal tool.** It was made for the author's own use and is shared as is, with no support and no promise of updates.
